@@ -10,7 +10,6 @@ interface OutputUser {
   id: string;
   user_name: string;
   email: string;
-  role?: 'user' | 'admin';
 }
 
 export {User, OutputUser};

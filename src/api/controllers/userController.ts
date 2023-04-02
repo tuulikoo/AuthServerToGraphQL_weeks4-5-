@@ -3,15 +3,21 @@ import CustomError from '../../classes/CustomError';
 import bcrypt from 'bcryptjs';
 import {OutputUser, User} from '../../interfaces/User';
 import userModel from '../models/userModel';
-import DBMessageResponse from '../../interfaces/DBMessageResponse';
 import {validationResult} from 'express-validator';
 import jwt from 'jsonwebtoken';
 import LoginMessageResponse from '../../interfaces/LoginMessageResponse';
+import MessageResponse from '../../interfaces/MessageResponse';
 
 const salt = bcrypt.genSaltSync(12);
 
+const check = (req: Request, res: Response) => {
+  console.log('check');
+  res.json({message: 'I am alive'});
+};
+
 const userListGet = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    console.log('userListGet');
     const users = await userModel.find().select('-password -role');
     res.json(users);
   } catch (error) {
@@ -25,13 +31,13 @@ const userGet = async (
   next: NextFunction
 ) => {
   try {
+    console.log('userGet', req.params.id);
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       const messages: string = errors
         .array()
         .map((error) => `${error.msg}: ${error.param}`)
         .join(', ');
-      console.log('cat_post validation', messages);
       next(new CustomError(messages, 400));
       return;
     }
@@ -62,7 +68,6 @@ const userPost = async (
         .array()
         .map((error) => `${error.msg}: ${error.param}`)
         .join(', ');
-      console.log('cat_post validation', messages);
       next(new CustomError(messages, 400));
       return;
     }
@@ -71,15 +76,8 @@ const userPost = async (
     user.role = 'user';
     user.password = bcrypt.hashSync(user.password!, salt);
     const newUser = await userModel.create(user);
-    const outUser: OutputUser =  {
-      user_name: newUser.user_name,
-      email: newUser.email,
-      id: newUser._id,
-    }
-    const token = jwt.sign(outUser, 'asdf');
-    const response: LoginMessageResponse = {
-      message: 'user created',
-      token,
+    const response: MessageResponse = {
+      message: `User ${newUser.user_name} created`,
     };
     res.json(response);
   } catch (error) {
@@ -88,7 +86,7 @@ const userPost = async (
 };
 
 const userPutCurrent = async (
-  req: Request<{}, {}, {token: string}>,
+  req: Request<{}, {}, User>,
   res: Response,
   next: NextFunction
 ) => {
@@ -99,20 +97,23 @@ const userPutCurrent = async (
         .array()
         .map((error) => `${error.msg}: ${error.param}`)
         .join(', ');
-      console.log('cat_post validation', messages);
       next(new CustomError(messages, 400));
       return;
     }
 
-    const {token} = req.body;
-    const user = jwt.verify(token, 'asdf') as OutputUser;
+    const authUser = res.locals.user;
     const result = await userModel
-      .findByIdAndUpdate(user.id, user, {
+      .findByIdAndUpdate(authUser.id, req.body, {
         new: true,
       })
       .select('-password -role');
     if (result) {
-      const newToken = jwt.sign(result, 'asdf');
+      const newUser: OutputUser = {
+        id: result._id,
+        user_name: result.user_name,
+        email: result.email,
+      };
+      const newToken = jwt.sign(newUser, process.env.JWT_SECRET as string);
       const response: LoginMessageResponse = {
         message: 'user created',
         token: newToken,
@@ -125,7 +126,7 @@ const userPutCurrent = async (
 };
 
 const userDeleteCurrent = async (
-  req: Request<{},{},{token: string}>,
+  req: Request,
   res: Response,
   next: NextFunction
 ) => {
@@ -136,19 +137,22 @@ const userDeleteCurrent = async (
         .array()
         .map((error) => `${error.msg}: ${error.param}`)
         .join(', ');
-      console.log('cat_post validation', messages);
       next(new CustomError(messages, 400));
       return;
     }
 
-    const {token} = req.body;
-    const user = jwt.verify(token, 'asdf') as OutputUser;
+    const {user} = res.locals;
 
     const result = await userModel
       .findByIdAndDelete(user.id)
       .select('-password -role');
     if (result) {
-      const newToken = jwt.sign(result, 'asdf');
+      const newUser: OutputUser = {
+        id: result._id,
+        user_name: result.user_name,
+        email: result.email,
+      };
+      const newToken = jwt.sign(newUser, process.env.JWT_SECRET as string);
       const response: LoginMessageResponse = {
         message: 'user deleted',
         token: newToken,
@@ -160,24 +164,27 @@ const userDeleteCurrent = async (
   }
 };
 
-const checkToken = async (req: Request<{}, {}, {token: string}>, res: Response, next: NextFunction) => {
+const checkToken = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       const messages: string = errors
-      .array()
-      .map((error) => `${error.msg}: ${error.param}`)
-      .join(', ');
-      console.log('cat_post validation', messages);
+        .array()
+        .map((error) => `${error.msg}: ${error.param}`)
+        .join(', ');
       next(new CustomError(messages, 400));
       return;
     }
 
-    const {token} = req.body;
-    const user = jwt.verify(token, 'asdf') as OutputUser;
-    const result = await userModel.findById(user.id).select('-password');
+    const {user} = res.locals;
+    const result = await userModel.findById(user.id).select('-password -role');
     if (result) {
-      const newToken = jwt.sign(result, 'asdf');
+      const newUser: OutputUser = {
+        id: result._id,
+        user_name: result.user_name,
+        email: result.email,
+      };
+      const newToken = jwt.sign(newUser, process.env.JWT_SECRET as string);
       const response: LoginMessageResponse = {
         message: 'valid token',
         token: newToken,
@@ -189,10 +196,10 @@ const checkToken = async (req: Request<{}, {}, {token: string}>, res: Response, 
   } catch (error) {
     next(new CustomError((error as Error).message, 400));
   }
-
 };
 
 export {
+  check,
   userListGet,
   userGet,
   userPost,
