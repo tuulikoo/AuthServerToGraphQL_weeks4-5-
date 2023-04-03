@@ -1,4 +1,8 @@
+import {OutputUser} from './User';
+
 export default interface LoginMessageResponse {
-  token: string;
   message: string;
+  updated?: boolean;
+  token?: string;
+  user?: OutputUser;
 }

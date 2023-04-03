@@ -2,11 +2,11 @@ import express from 'express';
 import {
   check,
   checkToken,
-  userDeleteCurrent,
+  userDelete,
   userGet,
   userListGet,
   userPost,
-  userPutCurrent,
+  userPut,
 } from '../controllers/userController';
 import {authenticate} from '../../middlewares';
 
@@ -16,8 +16,8 @@ router
   .route('/')
   .get(userListGet)
   .post(userPost)
-  .put(authenticate, userPutCurrent)
-  .delete(authenticate, userDeleteCurrent);
+  .put(authenticate, userPut)
+  .delete(authenticate, userDelete);
 
 router.get('/token', authenticate, checkToken);
 

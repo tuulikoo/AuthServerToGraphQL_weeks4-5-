@@ -3,10 +3,8 @@ import CustomError from '../../classes/CustomError';
 import bcrypt from 'bcryptjs';
 import {OutputUser, User} from '../../interfaces/User';
 import userModel from '../models/userModel';
-import {validationResult} from 'express-validator';
-import jwt from 'jsonwebtoken';
 import LoginMessageResponse from '../../interfaces/LoginMessageResponse';
-import MessageResponse from '../../interfaces/MessageResponse';
+import DBMessageResponse from '../../interfaces/DBMessageResponse';
 
 const salt = bcrypt.genSaltSync(12);
 
@@ -26,32 +24,20 @@ const userListGet = async (req: Request, res: Response, next: NextFunction) => {
 };
 
 const userGet = async (
-  req: Request<{id: string}, {}, {}>,
+  req: Request<{id: string}>,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    console.log('userGet', req.params.id);
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      const messages: string = errors
-        .array()
-        .map((error) => `${error.msg}: ${error.param}`)
-        .join(', ');
-      next(new CustomError(messages, 400));
-      return;
-    }
-
     const user = await userModel
       .findById(req.params.id)
       .select('-password -role');
-    if (user) {
-      res.json(user);
-    } else {
-      throw new CustomError('User not found', 404);
+    if (!user) {
+      next(new CustomError('User not found', 404));
     }
+    res.json(user);
   } catch (error) {
-    next(new CustomError((error as Error).message, 400));
+    next(new CustomError((error as Error).message, 500));
   }
 };
 
@@ -61,149 +47,93 @@ const userPost = async (
   next: NextFunction
 ) => {
   try {
-    console.log('userPost', req.body);
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      const messages: string = errors
-        .array()
-        .map((error) => `${error.msg}: ${error.param}`)
-        .join(', ');
-      next(new CustomError(messages, 400));
-      return;
-    }
-
     const user = req.body;
-    user.role = 'user';
-    user.password = bcrypt.hashSync(user.password!, salt);
+    user.password = await bcrypt.hash(user.password, salt);
     const newUser = await userModel.create(user);
-    const response: MessageResponse = {
-      message: `User ${newUser.user_name} created`,
+    const response: DBMessageResponse = {
+      message: 'user created',
+      user: {
+        user_name: newUser.user_name,
+        email: newUser.email,
+        id: newUser._id,
+      },
     };
     res.json(response);
   } catch (error) {
-    next(new CustomError((error as Error).message, 400));
+    next(new CustomError((error as Error).message, 500));
   }
 };
 
-const userPutCurrent = async (
+const userPut = async (
   req: Request<{}, {}, User>,
-  res: Response,
+  res: Response<{}, {userFromToken: OutputUser}>,
   next: NextFunction
 ) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      const messages: string = errors
-        .array()
-        .map((error) => `${error.msg}: ${error.param}`)
-        .join(', ');
-      next(new CustomError(messages, 400));
-      return;
-    }
-
-    const authUser = res.locals.user;
+    const {userFromToken} = res.locals;
     const result = await userModel
-      .findByIdAndUpdate(authUser.id, req.body, {
+      .findByIdAndUpdate(userFromToken.id, req.body, {
         new: true,
       })
       .select('-password -role');
-    if (result) {
-      const newUser: OutputUser = {
-        id: result._id,
+    if (!result) {
+      next(new CustomError('User not found', 404));
+      return;
+    }
+
+    const response: LoginMessageResponse = {
+      message: 'user updated',
+      user: {
         user_name: result.user_name,
         email: result.email,
-      };
-      const newToken = jwt.sign(newUser, process.env.JWT_SECRET as string);
-      const response: LoginMessageResponse = {
-        message: 'user created',
-        token: newToken,
-      };
-      res.json(response);
-    }
+        id: result._id,
+      },
+    };
+    res.json(response);
   } catch (error) {
-    next(new CustomError((error as Error).message, 400));
+    next(new CustomError((error as Error).message, 500));
   }
 };
 
-const userDeleteCurrent = async (
+const userDelete = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const {userFromToken} = res.locals;
+
+    const result = await userModel
+      .findByIdAndDelete(userFromToken.id)
+      .select('-password -role');
+    if (!result) {
+      next(new CustomError('User not found', 404));
+      return;
+    }
+    const response: DBMessageResponse = {
+      message: 'user deleted',
+      user: {
+        user_name: result.user_name,
+        email: result.email,
+        id: result._id,
+      },
+    };
+    res.json(response);
+  } catch (error) {
+    next(new CustomError((error as Error).message, 500));
+  }
+};
+
+const checkToken = async (
   req: Request,
-  res: Response,
+  res: Response<{}, {userFromToken: OutputUser}>,
   next: NextFunction
 ) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      const messages: string = errors
-        .array()
-        .map((error) => `${error.msg}: ${error.param}`)
-        .join(', ');
-      next(new CustomError(messages, 400));
-      return;
-    }
-
-    const {user} = res.locals;
-
-    const result = await userModel
-      .findByIdAndDelete(user.id)
-      .select('-password -role');
-    if (result) {
-      const newUser: OutputUser = {
-        id: result._id,
-        user_name: result.user_name,
-        email: result.email,
-      };
-      const newToken = jwt.sign(newUser, process.env.JWT_SECRET as string);
-      const response: LoginMessageResponse = {
-        message: 'user deleted',
-        token: newToken,
-      };
-      res.json(response);
-    }
+    const message: DBMessageResponse = {
+      message: 'Token valid',
+      user: res.locals.userFromToken,
+    };
+    res.json(message);
   } catch (error) {
-    next(new CustomError((error as Error).message, 400));
+    next(new CustomError((error as Error).message, 500));
   }
 };
 
-const checkToken = async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      const messages: string = errors
-        .array()
-        .map((error) => `${error.msg}: ${error.param}`)
-        .join(', ');
-      next(new CustomError(messages, 400));
-      return;
-    }
-
-    const {user} = res.locals;
-    const result = await userModel.findById(user.id).select('-password -role');
-    if (result) {
-      const newUser: OutputUser = {
-        id: result._id,
-        user_name: result.user_name,
-        email: result.email,
-      };
-      const newToken = jwt.sign(newUser, process.env.JWT_SECRET as string);
-      const response: LoginMessageResponse = {
-        message: 'valid token',
-        token: newToken,
-      };
-      res.json(response);
-      return;
-    }
-    next(new CustomError('token not valid', 403));
-  } catch (error) {
-    next(new CustomError((error as Error).message, 400));
-  }
-};
-
-export {
-  check,
-  userListGet,
-  userGet,
-  userPost,
-  userPutCurrent,
-  userDeleteCurrent,
-  checkToken,
-};
+export {check, userListGet, userGet, userPost, userPut, userDelete, checkToken};
