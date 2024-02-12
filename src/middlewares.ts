@@ -1,10 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {NextFunction, Request, Response} from 'express';
-import ErrorResponse from './interfaces/ErrorResponse';
 import CustomError from './classes/CustomError';
 import jwt from 'jsonwebtoken';
-import {OutputUser} from './interfaces/User';
 import userModel from './api/models/userModel';
+import {ErrorResponse} from './types/MessageTypes';
+import {LoginUser, TokenContent, UserOutput} from './types/DBTypes';
 
 const notFound = (req: Request, res: Response, next: NextFunction) => {
   const error = new CustomError(`🔍 - Not Found - ${req.originalUrl}`, 404);
@@ -15,7 +15,7 @@ const errorHandler = (
   err: CustomError,
   req: Request,
   res: Response<ErrorResponse>,
-  next: NextFunction
+  next: NextFunction,
 ) => {
   console.error('errorHandler', err);
   res.status(err.status || 500);
@@ -28,11 +28,11 @@ const errorHandler = (
 const authenticate = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
   try {
     const bearer = req.headers.authorization;
-    console.log(bearer);
+    // console.log(bearer);
     if (!bearer) {
       next(new CustomError('No token provided', 401));
       return;
@@ -44,22 +44,22 @@ const authenticate = async (
     }
     const userFromToken = jwt.verify(
       token,
-      process.env.JWT_SECRET as string
-    ) as OutputUser;
+      process.env.JWT_SECRET as string,
+    ) as LoginUser;
 
-    const user = await userModel
-      .findById(userFromToken.id)
-      .select('-password -role');
+    const user = await userModel.findById(userFromToken.id).select('-password');
 
     if (!user) {
       next(new CustomError('Token not valid', 404));
       return;
     }
 
-    const outputUser: OutputUser = {
+    // possibly updated data from database
+    const outputUser: LoginUser = {
       user_name: user.user_name,
       email: user.email,
-      id: user._id,
+      id: user.id,
+      role: user.role,
     };
 
     res.locals.userFromToken = outputUser;

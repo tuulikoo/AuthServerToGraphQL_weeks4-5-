@@ -2,7 +2,7 @@
 // intface User is located in src/interfaces/User.ts
 
 import mongoose from 'mongoose';
-import {User} from '../../interfaces/User';
+import {User} from '../../types/DBTypes';
 
 const userModel = new mongoose.Schema<User>({
   user_name: {

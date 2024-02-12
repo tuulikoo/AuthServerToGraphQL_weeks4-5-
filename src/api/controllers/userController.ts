@@ -1,10 +1,9 @@
 import {Request, Response, NextFunction} from 'express';
 import CustomError from '../../classes/CustomError';
 import bcrypt from 'bcryptjs';
-import {OutputUser, User} from '../../interfaces/User';
 import userModel from '../models/userModel';
-import LoginMessageResponse from '../../interfaces/LoginMessageResponse';
-import DBMessageResponse from '../../interfaces/DBMessageResponse';
+import {LoginUser, UserInput, UserOutput} from '../../types/DBTypes';
+import {UserResponse} from '../../types/MessageTypes';
 
 const salt = bcrypt.genSaltSync(12);
 
@@ -26,7 +25,7 @@ const userListGet = async (req: Request, res: Response, next: NextFunction) => {
 const userGet = async (
   req: Request<{id: string}>,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
   try {
     const user = await userModel
@@ -42,15 +41,15 @@ const userGet = async (
 };
 
 const userPost = async (
-  req: Request<{}, {}, User>,
+  req: Request<{}, {}, UserInput>,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
   try {
     const user = req.body;
     user.password = await bcrypt.hash(user.password, salt);
     const newUser = await userModel.create(user);
-    const response: DBMessageResponse = {
+    const response: UserResponse = {
       message: 'user created',
       user: {
         user_name: newUser.user_name,
@@ -65,14 +64,20 @@ const userPost = async (
 };
 
 const userPut = async (
-  req: Request<{}, {}, User>,
-  res: Response<{}, {userFromToken: OutputUser}>,
-  next: NextFunction
+  req: Request<{id?: string}, {}, UserInput>,
+  res: Response<UserResponse, {userFromToken: LoginUser}>,
+  next: NextFunction,
 ) => {
   try {
     const {userFromToken} = res.locals;
+
+    let id = userFromToken.id;
+    if (userFromToken.role === 'admin' && req.params.id) {
+      id = req.params.id;
+    }
+    console.log('id', id, req.body);
     const result = await userModel
-      .findByIdAndUpdate(userFromToken.id, req.body, {
+      .findByIdAndUpdate(id, req.body, {
         new: true,
       })
       .select('-password -role');
@@ -81,7 +86,7 @@ const userPut = async (
       return;
     }
 
-    const response: LoginMessageResponse = {
+    const response: UserResponse = {
       message: 'user updated',
       user: {
         user_name: result.user_name,
@@ -95,18 +100,31 @@ const userPut = async (
   }
 };
 
-const userDelete = async (req: Request, res: Response, next: NextFunction) => {
+const userDelete = async (
+  req: Request<{id?: string}>,
+  res: Response<UserResponse, {userFromToken: LoginUser}>,
+  next: NextFunction,
+) => {
   try {
     const {userFromToken} = res.locals;
+    let id;
+    if (req.params.id && userFromToken.role === 'admin') {
+      id = req.params.id;
+      console.log('i am admin', id);
+    }
+    if (userFromToken.role === 'user') {
+      id = userFromToken.id;
+      console.log('i am user', id);
+    }
 
     const result = await userModel
-      .findByIdAndDelete(userFromToken.id)
+      .findByIdAndDelete(id)
       .select('-password -role');
     if (!result) {
       next(new CustomError('User not found', 404));
       return;
     }
-    const response: DBMessageResponse = {
+    const response: UserResponse = {
       message: 'user deleted',
       user: {
         user_name: result.user_name,
@@ -114,6 +132,7 @@ const userDelete = async (req: Request, res: Response, next: NextFunction) => {
         id: result._id,
       },
     };
+    console.log('delete response', response);
     res.json(response);
   } catch (error) {
     next(new CustomError((error as Error).message, 500));
@@ -122,13 +141,20 @@ const userDelete = async (req: Request, res: Response, next: NextFunction) => {
 
 const checkToken = async (
   req: Request,
-  res: Response<{}, {userFromToken: OutputUser}>,
-  next: NextFunction
+  res: Response<UserResponse, {userFromToken: LoginUser}>,
+  next: NextFunction,
 ) => {
   try {
-    const message: DBMessageResponse = {
+    const userData: UserOutput = await userModel
+      .findById(res.locals.userFromToken.id)
+      .select('-password, role');
+    if (!userData) {
+      next(new CustomError('Token not valid', 404));
+      return;
+    }
+    const message: UserResponse = {
       message: 'Token valid',
-      user: res.locals.userFromToken,
+      user: userData,
     };
     res.json(message);
   } catch (error) {

@@ -23,6 +23,10 @@ router.get('/token', authenticate, checkToken);
 
 router.route('/check').get(check);
 
-router.route('/:id').get(userGet);
+router
+  .route('/:id')
+  .get(userGet)
+  .delete(authenticate, userDelete)
+  .put(authenticate, userPut);
 
 export default router;
